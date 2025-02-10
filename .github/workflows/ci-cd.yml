@@ -1,0 +1,96 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+
+jobs:
+  # CI Job: Linting, Testing, and Building Docker image
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the code
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+
+      # Set up Python
+      - name: Set up Python 3.8
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+
+      # Install dependencies
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements.txt[dev]  # for dev dependencies
+
+      # Lint the code
+      - name: Run Linting
+        run: |
+          flake8 api/
+
+      # Run Tests with Coverage
+      - name: Run Tests
+        run: |
+          pytest --cov=api
+
+      # Build Docker image
+      - name: Build Docker Image
+        run: |
+          docker build -t deepcode-api .
+
+      # Optionally push Docker image to Docker Hub (uncomment if needed)
+      # - name: Push Docker Image
+      #   run: |
+      #     docker login -u $DOCKER_USERNAME -p $DOCKER_TOKEN
+      #     docker push deepcode-api
+
+  # CD Job: Deploy to a server or cloud provider
+  cd:
+    needs: ci  # Ensure the CI job runs first
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'  # Only deploy on push to main branch
+    steps:
+      # Checkout the code
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+
+      # Set up Docker
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      # Log in to Docker Hub (if deploying Docker image)
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      # Build and deploy Docker image
+      - name: Deploy to Server (Docker)
+        run: |
+          docker build -t $DOCKER_USERNAME/deepcode-api:latest .
+          docker push $DOCKER_USERNAME/deepcode-api:latest
+
+      # Optional: Deploy to your cloud provider (e.g., AWS, GCP, Azure)
+      # Add steps to deploy to cloud (like ECS, Kubernetes, etc.)
+
+  # Notification on success or failure
+  notify:
+    runs-on: ubuntu-latest
+    needs: [ci, cd]
+    steps:
+      - name: Send success/failure notification
+        run: |
+          if [[ ${{ job.status }} == 'success' ]]; then
+            echo "Deployment successful!"
+          else
+            echo "Deployment failed!"
